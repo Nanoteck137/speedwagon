@@ -17,6 +17,9 @@ pub enum Error {
     IdentifyErrorReadingNameLength(std::io::Error),
     IdentifyErrorReadingName(std::io::Error),
     IdentifyFailedToConvertName(std::string::FromUtf8Error),
+
+    StateSerializeFailed(std::io::Error),
+    StateDeserializeFailed(std::io::Error),
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -224,5 +227,76 @@ impl Identify {
             version: Version(version),
             num_cmds,
         })
+    }
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct RSNavState {
+    pub led_bar: bool,
+    pub led_bar_low_mode: bool,
+    pub high_beam: bool,
+    pub led_bar_active: bool,
+
+    pub reverse_camera: bool,
+    pub reverse_lights: bool,
+    pub reverse: bool,
+    pub reverse_lights_active: bool,
+    pub trunk_lights: bool,
+}
+
+impl RSNavState {
+    pub const fn new() -> Self {
+        Self {
+            led_bar: false,
+            led_bar_low_mode: false,
+            high_beam: false,
+            led_bar_active: false,
+
+            reverse_camera: false,
+            reverse_lights: false,
+            reverse: false,
+            reverse_lights_active: false,
+            trunk_lights: false,
+        }
+    }
+
+    pub fn serialize<W>(&self, writer: &mut W) -> Result<()>
+    where
+        W: Write,
+    {
+        let b = (self.led_bar as u8) << 0 |
+            (self.led_bar_low_mode as u8) << 1 |
+            (self.high_beam as u8) << 2 |
+            (self.led_bar_active as u8) << 3;
+        writer.write_u8(b).map_err(Error::StateSerializeFailed)?;
+
+        let b = (self.reverse_camera as u8) << 0 |
+            (self.reverse_lights as u8) << 1 |
+            (self.reverse as u8) << 2 |
+            (self.reverse_lights_active as u8) << 3 |
+            (self.trunk_lights as u8) << 4;
+        writer.write_u8(b).map_err(Error::StateSerializeFailed)?;
+
+        Ok(())
+    }
+
+    pub fn deserialize<R>(&mut self, reader: &mut R) -> Result<()>
+    where
+        R: Read,
+    {
+        let data = reader.read_u8().map_err(Error::StateDeserializeFailed)?;
+        self.led_bar = data & (1 << 0) > 0;
+        self.led_bar_low_mode = data & (1 << 1) > 0;
+        self.high_beam = data & (1 << 2) > 0;
+        self.led_bar_active = data & (1 << 3) > 0;
+
+        let data = reader.read_u8().map_err(Error::StateDeserializeFailed)?;
+        self.reverse_camera = data & (1 << 0) > 0;
+        self.reverse_lights = data & (1 << 1) > 0;
+        self.reverse = data & (1 << 2) > 0;
+        self.reverse_lights_active = data & (1 << 3) > 0;
+        self.trunk_lights = data & (1 << 4) > 0;
+
+        Ok(())
     }
 }

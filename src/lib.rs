@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+pub use byteorder::ReadBytesExt;
+use byteorder::{LittleEndian, WriteBytesExt};
 use enum_primitive_derive::Primitive;
 use num_traits::{FromPrimitive, ToPrimitive};
 

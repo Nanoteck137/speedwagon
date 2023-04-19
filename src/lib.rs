@@ -83,7 +83,7 @@ impl Packet {
         }
     }
 
-    pub fn unpack<R>(reader: &mut R) -> Packet
+    pub fn read<R>(reader: &mut R) -> Result<Packet>
     where
         R: Read,
     {
@@ -99,15 +99,20 @@ impl Packet {
 
         let checksum = reader.read_u16::<LittleEndian>().unwrap();
 
-        return Self {
+        Ok(Self {
             pid,
             typ,
             data,
             checksum,
-        };
+        })
     }
 
-    pub fn pack<W>(writer: &mut W, pid: u8, typ: PacketType, data: &[u8])
+    pub fn write<W>(
+        writer: &mut W,
+        pid: u8,
+        typ: PacketType,
+        data: &[u8],
+    ) -> Result<()>
     where
         W: Write,
     {
@@ -120,14 +125,49 @@ impl Packet {
         writer.write(data).unwrap();
 
         writer.write_u16::<LittleEndian>(0).unwrap();
+
+        Ok(())
+    }
+
+    pub fn write_response<W>(
+        writer: &mut W,
+        pid: u8,
+        error_code: ResponseErrorCode,
+        data: &[u8],
+    ) -> Result<()>
+    where
+        W: Write,
+    {
+        writer.write_u8(PACKET_START).unwrap();
+        writer.write_u8(pid).unwrap(); // PID
+        let typ = PacketType::Response.to_u8().expect("This should not fail");
+        writer.write_u8(typ).unwrap();
+
+        // TODO(patrik): Check data.len()
+        let len = data.len() + 1;
+        writer.write_u8(len as u8).unwrap();
+        writer.write_u8(error_code.to_u8().unwrap()).unwrap();
+        writer.write(data).unwrap();
+
+        writer.write_u16::<LittleEndian>(0).unwrap();
+
+        Ok(())
     }
 }
 
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct Version(u16);
+pub struct Version(pub u16);
 
 impl Version {
+    pub fn new(major: u8, minor: u8, patch: u8) -> Version {
+        Self(
+            ((major & 0x3f) as u16) << 10 |
+                ((minor & 0x3f) as u16) << 4 |
+                (patch & 0xf) as u16,
+        )
+    }
+
     pub fn major(&self) -> u8 {
         ((self.0 >> 10) & 0x3f) as u8
     }

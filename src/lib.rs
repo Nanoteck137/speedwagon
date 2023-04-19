@@ -281,23 +281,25 @@ impl RSNavState {
         Ok(())
     }
 
-    pub fn deserialize<R>(&mut self, reader: &mut R) -> Result<()>
+    pub fn deserialize<R>(reader: &mut R) -> Result<Self>
     where
         R: Read,
     {
-        let data = reader.read_u8().map_err(Error::StateDeserializeFailed)?;
-        self.led_bar = data & (1 << 0) > 0;
-        self.led_bar_low_mode = data & (1 << 1) > 0;
-        self.high_beam = data & (1 << 2) > 0;
-        self.led_bar_active = data & (1 << 3) > 0;
+        let mut res = Self::default();
 
         let data = reader.read_u8().map_err(Error::StateDeserializeFailed)?;
-        self.reverse_camera = data & (1 << 0) > 0;
-        self.reverse_lights = data & (1 << 1) > 0;
-        self.reverse = data & (1 << 2) > 0;
-        self.reverse_lights_active = data & (1 << 3) > 0;
-        self.trunk_lights = data & (1 << 4) > 0;
+        res.led_bar = data & (1 << 0) > 0;
+        res.led_bar_low_mode = data & (1 << 1) > 0;
+        res.high_beam = data & (1 << 2) > 0;
+        res.led_bar_active = data & (1 << 3) > 0;
 
-        Ok(())
+        let data = reader.read_u8().map_err(Error::StateDeserializeFailed)?;
+        res.reverse_camera = data & (1 << 0) > 0;
+        res.reverse_lights = data & (1 << 1) > 0;
+        res.reverse = data & (1 << 2) > 0;
+        res.reverse_lights_active = data & (1 << 3) > 0;
+        res.trunk_lights = data & (1 << 4) > 0;
+
+        Ok(res)
     }
 }

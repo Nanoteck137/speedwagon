@@ -287,6 +287,72 @@ impl RSNavState {
         }
     }
 
+    pub fn set_led_bar_active(&mut self, on: bool) {
+        self.led_bar_active = on;
+
+        if self.led_bar_active {
+            self.led_bar = self.high_beam;
+        } else {
+            self.led_bar = false;
+        }
+    }
+
+    pub fn set_led_bar_low_mode(&mut self, on: bool) {
+        self.led_bar_low_mode = on;
+    }
+
+    pub fn force_led_bar(&mut self, on: bool) {
+        self.led_bar = on;
+    }
+
+    pub fn set_trunk_lights(&mut self, on: bool) {
+        self.trunk_lights = on;
+    }
+
+    pub fn set_reverse_lights_active(&mut self, on: bool) {
+        self.reverse_lights_active = on;
+
+        if self.reverse_lights_active {
+            self.reverse_lights = self.reverse;
+        } else {
+            self.reverse_lights = false;
+        }
+    }
+
+    pub fn force_reverse_lights(&mut self, on: bool) {
+        self.reverse_lights = on;
+    }
+
+    pub fn force_reverse_camera(&mut self, on: bool) {
+        self.reverse_camera = on;
+    }
+
+    pub fn reverse(&mut self, on: bool) {
+        self.reverse = on;
+
+        if !self.reverse {
+            self.reverse_lights = false;
+            self.reverse_camera = false;
+        } else {
+            self.reverse_camera = true;
+            if self.reverse_lights_active {
+                self.reverse_lights = true;
+            }
+        }
+    }
+
+    pub fn high_beam(&mut self, on: bool) {
+        self.high_beam = on;
+
+        if self.high_beam {
+            if self.led_bar_active {
+                self.led_bar = true;
+            }
+        } else {
+            self.led_bar = false;
+        }
+    }
+
     pub fn serialize<W>(&self, writer: &mut W) -> Result<()>
     where
         W: Write,

@@ -19,6 +19,9 @@ pub enum Error {
     IdentifyErrorReadingName(std::io::Error),
     IdentifyFailedToConvertName(std::string::FromUtf8Error),
 
+    PacketWriteFailed(std::io::Error),
+    PacketReadFailed(std::io::Error),
+
     StateSerializeFailed(std::io::Error),
     StateDeserializeFailed(std::io::Error),
 }
@@ -91,17 +94,22 @@ impl Packet {
     where
         R: Read,
     {
-        let pid = reader.read_u8().unwrap();
+        let pid = reader.read_u8().map_err(Error::PacketReadFailed)?;
 
-        let typ = reader.read_u8().unwrap();
+        let typ = reader.read_u8().map_err(Error::PacketReadFailed)?;
+        // TODO(patrik): Fix nooooow
         let typ = PacketType::from_u8(typ).unwrap();
 
-        let data_len = reader.read_u8().unwrap();
+        let data_len = reader.read_u8().map_err(Error::PacketReadFailed)?;
 
         let mut data = vec![0; data_len as usize];
-        reader.read_exact(&mut data).unwrap();
+        reader
+            .read_exact(&mut data)
+            .map_err(Error::PacketReadFailed)?;
 
-        let checksum = reader.read_u16::<LittleEndian>().unwrap();
+        let checksum = reader
+            .read_u16::<LittleEndian>()
+            .map_err(Error::PacketReadFailed)?;
 
         Ok(Self {
             pid,
@@ -120,15 +128,24 @@ impl Packet {
     where
         W: Write,
     {
-        writer.write_u8(PACKET_START).unwrap();
+        writer
+            .write_u8(PACKET_START)
+            .map_err(Error::PacketWriteFailed)?;
         writer.write_u8(pid).unwrap(); // PID
-        writer.write_u8(typ.to_u8().unwrap()).unwrap();
 
+        // TODO(patrik): Fix typ.to_u8().unwrap() noooow
+        writer
+            .write_u8(typ.to_u8().unwrap())
+            .map_err(Error::PacketWriteFailed)?;
         // TODO(patrik): Check data.len()
-        writer.write_u8(data.len() as u8).unwrap();
-        writer.write(data).unwrap();
+        writer
+            .write_u8(data.len() as u8)
+            .map_err(Error::PacketWriteFailed)?;
+        writer.write(data).map_err(Error::PacketWriteFailed)?;
 
-        writer.write_u16::<LittleEndian>(0).unwrap();
+        writer
+            .write_u16::<LittleEndian>(0)
+            .map_err(Error::PacketWriteFailed)?;
 
         Ok(())
     }
@@ -142,18 +159,27 @@ impl Packet {
     where
         W: Write,
     {
-        writer.write_u8(PACKET_START).unwrap();
-        writer.write_u8(pid).unwrap(); // PID
+        writer
+            .write_u8(PACKET_START)
+            .map_err(Error::PacketWriteFailed)?;
+        writer.write_u8(pid).map_err(Error::PacketWriteFailed)?;
         let typ = PacketType::Response.to_u8().expect("This should not fail");
-        writer.write_u8(typ).unwrap();
+        writer.write_u8(typ).map_err(Error::PacketWriteFailed)?;
 
         // TODO(patrik): Check data.len()
         let len = data.len() + 1;
-        writer.write_u8(len as u8).unwrap();
-        writer.write_u8(error_code.to_u8().unwrap()).unwrap();
-        writer.write(data).unwrap();
+        writer
+            .write_u8(len as u8)
+            .map_err(Error::PacketWriteFailed)?;
+        // TODO(patrik): Fix error_code.to_u8().unwrap() nooow
+        writer
+            .write_u8(error_code.to_u8().unwrap())
+            .map_err(Error::PacketWriteFailed)?;
+        writer.write(data).map_err(Error::PacketWriteFailed)?;
 
-        writer.write_u16::<LittleEndian>(0).unwrap();
+        writer
+            .write_u16::<LittleEndian>(0)
+            .map_err(Error::PacketWriteFailed)?;
 
         Ok(())
     }

@@ -26,7 +26,7 @@ pub enum Error {
     StateDeserializeFailed(std::io::Error),
 }
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Copy, Clone, Primitive, PartialEq, Debug)]
 #[repr(u8)]

@@ -62,6 +62,22 @@ pub enum PacketType {
     Response { code: ResponseCode, data: Vec<u8> },
 }
 
+impl PacketType {
+    fn to_u8(&self) -> u8 {
+        match self {
+            PacketType::Connect => 0,
+            PacketType::Disconnect => 1,
+            PacketType::Cmd {
+                index: _,
+                params: _,
+            } => 2,
+            PacketType::Identify(_) => 3,
+            PacketType::Status { data: _ } => 4,
+            PacketType::Response { code: _, data: _ } => 5,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Packet {
     id: u16,
@@ -79,6 +95,29 @@ impl Packet {
 
     pub fn typ(&self) -> &PacketType {
         &self.typ
+    }
+
+    pub fn serialize<W>(&self, writer: &mut W) -> Result<()>
+    where
+        W: Write,
+    {
+        // TODO(patrik): Remove unwrap
+        writer.write_u16::<LittleEndian>(self.id).unwrap();
+        writer.write_u8(self.typ.to_u8()).unwrap();
+
+        match &self.typ {
+            PacketType::Connect => todo!(),
+            PacketType::Disconnect => todo!(),
+            PacketType::Cmd {
+                index: _,
+                params: _,
+            } => todo!(),
+            PacketType::Identify(_) => todo!(),
+            PacketType::Status { data: _ } => todo!(),
+            PacketType::Response { code: _, data: _ } => todo!(),
+        }
+
+        Ok(())
     }
 
     pub fn deserialize<R>(reader: &mut R) -> Result<Self>

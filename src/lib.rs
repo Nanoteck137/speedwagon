@@ -106,15 +106,31 @@ impl Packet {
         writer.write_u8(self.typ.to_u8()).unwrap();
 
         match &self.typ {
-            PacketType::Connect => todo!(),
-            PacketType::Disconnect => todo!(),
-            PacketType::Cmd {
-                index: _,
-                params: _,
-            } => todo!(),
-            PacketType::Identify(_) => todo!(),
-            PacketType::Status { data: _ } => todo!(),
-            PacketType::Response { code: _, data: _ } => todo!(),
+            PacketType::Connect => {}
+            PacketType::Disconnect => {}
+
+            PacketType::Cmd { index, params } => {
+                writer.write_u8(*index).unwrap();
+                // TODO(patrik): Check params len <= 255 maybe less
+                writer.write_u8(params.len() as u8).unwrap();
+                for param in params {
+                    writer.write_u8(*param).unwrap();
+                }
+            }
+
+            PacketType::Identify(identity) => identity.serialize(writer)?,
+
+            PacketType::Status { data } => {
+                for b in data {
+                    writer.write_u8(*b).unwrap();
+                }
+                writer.write(data).unwrap();
+            }
+
+            PacketType::Response { code, data } => {
+                writer.write_u8(code.to_u8().unwrap()).unwrap();
+                writer.write(data).unwrap();
+            }
         }
 
         Ok(())
@@ -354,6 +370,21 @@ pub struct Identify {
 }
 
 impl Identify {
+    pub fn serialize<W>(&self, writer: &mut W) -> Result<()>
+    where
+        W: Write,
+    {
+        // TODO(patrik): Remove unwrap
+        writer.write_u16::<LittleEndian>(self.version.0).unwrap();
+        // TODO(patrik): Check num_cmds
+        writer.write_u8(self.num_cmds as u8).unwrap();
+        // TODO(patrik): Check name len
+        writer.write_u8(self.name.len() as u8).unwrap();
+        writer.write(self.name.as_bytes()).unwrap();
+
+        Ok(())
+    }
+
     pub fn deserialize<R>(reader: &mut R) -> Result<Self>
     where
         R: Read,

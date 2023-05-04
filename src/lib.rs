@@ -15,6 +15,8 @@ pub enum Error {
     InvalidResponseCode(u8),
     InvalidPacketType,
 
+    PacketDeserializeError(std::io::Error),
+
     IdentifyErrorReadingVersion(std::io::Error),
     IdentifyErrorReadingNumCmds(std::io::Error),
     IdentifyErrorReadingNameLength(std::io::Error),
@@ -141,48 +143,61 @@ impl Packet {
         R: Read,
     {
         // TODO(patrik): Remove unwrap
-        let id = reader.read_u16::<LittleEndian>().unwrap();
-        let typ = reader.read_u8().unwrap();
+        let id = reader
+            .read_u16::<LittleEndian>()
+            .map_err(Error::PacketDeserializeError)?;
+        let typ = reader.read_u8().map_err(Error::PacketDeserializeError)?;
 
         let typ = match typ {
             0 => Ok(PacketType::Connect),
             1 => Ok(PacketType::Disconnect),
             2 => {
                 // TODO(patrik): Remove unwrap
-                let index = reader.read_u8().unwrap();
-                let num_params = reader.read_u8().unwrap();
+                let index =
+                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
+                let num_params =
+                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
                 let num_params = num_params as usize;
 
                 let mut params = vec![0; num_params];
-                reader.read_exact(&mut params).unwrap();
+                reader
+                    .read_exact(&mut params)
+                    .map_err(Error::PacketDeserializeError)?;
 
                 Ok(PacketType::Cmd { index, params })
             }
 
             3 => {
                 // TODO(patrik): Remove unwrap
-                let identify = Identify::deserialize(reader).unwrap();
+                let identify = Identify::deserialize(reader)?;
                 Ok(PacketType::Identify(identify))
             }
 
             4 => {
                 let mut data = [0; NUM_STATUS_BYTES];
                 // TODO(patrik): Remove unwrap
-                reader.read_exact(&mut data).unwrap();
+                reader
+                    .read_exact(&mut data)
+                    .map_err(Error::PacketDeserializeError)?;
 
                 Ok(PacketType::Status { data })
             }
 
             5 => {
-                let code = reader.read_u8().unwrap();
+                let code =
+                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
+                // TODO(patrik): Remove unwrap
                 let code = ResponseCode::from_u8(code).unwrap();
 
-                let data_len = reader.read_u8().unwrap();
+                let data_len =
+                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
                 let data_len = data_len as usize;
 
                 let mut data = vec![0; data_len];
                 if data_len > 0 {
-                    reader.read_exact(&mut data).unwrap();
+                    reader
+                        .read_exact(&mut data)
+                        .map_err(Error::PacketDeserializeError)?;
                 }
 
                 Ok(PacketType::Response { code, data })
@@ -191,7 +206,9 @@ impl Packet {
             _ => Err(Error::InvalidPacketType),
         };
 
-        Err(Error::InvalidResponseCode(0))
+        let typ = typ?;
+
+        Ok(Packet { id, typ })
     }
 }
 

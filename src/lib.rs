@@ -7,6 +7,7 @@ use num_traits::{FromPrimitive, ToPrimitive};
 
 pub const PACKET_START: u8 = 0x4e;
 pub const NUM_STATUS_BYTES: usize = 8;
+pub const NUM_CMD_PARAMS: usize = 8;
 
 #[derive(Debug)]
 pub enum Error {
@@ -40,9 +41,14 @@ pub enum ResponseCode {
 pub enum PacketType {
     Connect,
     Disconnect,
-    Error { code: ResponseCode },
+    Error {
+        code: ResponseCode,
+    },
 
-    Cmd { index: u8, params: Vec<u8> },
+    Cmd {
+        index: u8,
+        params: [u8; NUM_CMD_PARAMS],
+    },
     Identify,
 
     OnConnect,
@@ -95,7 +101,6 @@ impl Packet {
     where
         W: Write,
     {
-        // TODO(patrik): Remove unwrap
         writer
             .write_u16::<LittleEndian>(self.id)
             .map_err(Error::PacketSerialize)?;
@@ -114,10 +119,6 @@ impl Packet {
 
             PacketType::Cmd { index, params } => {
                 writer.write_u8(*index).map_err(Error::PacketSerialize)?;
-                // TODO(patrik): Check params len <= 255 maybe less
-                writer
-                    .write_u8(params.len() as u8)
-                    .map_err(Error::PacketSerialize)?;
                 writer.write(params).map_err(Error::PacketSerialize)?;
             }
 
@@ -147,7 +148,8 @@ impl Packet {
             0 => Ok(PacketType::Connect),
             1 => Ok(PacketType::Disconnect),
             2 => {
-                let code = reader.read_u8().unwrap();
+                let code =
+                    reader.read_u8().map_err(Error::PacketDeserialize)?;
                 let code = ResponseCode::from_u8(code)
                     .ok_or(Error::InvalidResponseCode(code))?;
 
@@ -157,11 +159,8 @@ impl Packet {
             3 => {
                 let index =
                     reader.read_u8().map_err(Error::PacketDeserialize)?;
-                let num_params =
-                    reader.read_u8().map_err(Error::PacketDeserialize)?;
-                let num_params = num_params as usize;
 
-                let mut params = vec![0; num_params];
+                let mut params = [0; NUM_CMD_PARAMS];
                 reader
                     .read_exact(&mut params)
                     .map_err(Error::PacketDeserialize)?;
@@ -194,140 +193,6 @@ impl Packet {
         Ok(Packet { id, typ })
     }
 }
-
-// #[derive(Debug)]
-// pub struct Packet {
-//     pid: u8,
-//     typ: PacketType,
-//     data: Vec<u8>,
-//     checksum: u16,
-// }
-//
-// impl Packet {
-//     pub fn pid(&self) -> u8 {
-//         self.pid
-//     }
-//
-//     pub fn typ(&self) -> PacketType {
-//         self.typ
-//     }
-//
-//     pub fn data(&self) -> &[u8] {
-//         &self.data
-//     }
-//
-//     pub fn checksum(&self) -> u16 {
-//         self.checksum
-//     }
-//
-//     pub fn response(&self) -> Result<&[u8]> {
-//         if self.typ == PacketType::Response {
-//             let error_code = ResponseErrorCode::from_u8(self.data[0])
-//                 .ok_or(Error::InvalidResponseErrorCode(self.data[0]))?;
-//
-//             match error_code {
-//                 ResponseErrorCode::Success => Ok(&self.data[1..]),
-//                 _ => Err(Error::ResponseError(error_code)),
-//             }
-//         } else {
-//             Err(Error::PacketNotReponse(self.typ))
-//         }
-//     }
-//
-//     pub fn read<R>(reader: &mut R) -> Result<Packet>
-//     where
-//         R: Read,
-//     {
-//         let pid = reader.read_u8().map_err(Error::PacketReadFailed)?;
-//
-//         let typ = reader.read_u8().map_err(Error::PacketReadFailed)?;
-//         // TODO(patrik): Fix nooooow
-//         let typ = PacketType::from_u8(typ).unwrap();
-//
-//         let data_len = reader.read_u8().map_err(Error::PacketReadFailed)?;
-//
-//         let mut data = vec![0; data_len as usize];
-//         reader
-//             .read_exact(&mut data)
-//             .map_err(Error::PacketReadFailed)?;
-//
-//         let checksum = reader
-//             .read_u16::<LittleEndian>()
-//             .map_err(Error::PacketReadFailed)?;
-//
-//         Ok(Self {
-//             pid,
-//             typ,
-//             data,
-//             checksum,
-//         })
-//     }
-//
-//     pub fn write<W>(
-//         writer: &mut W,
-//         pid: u8,
-//         typ: PacketType,
-//         data: &[u8],
-//     ) -> Result<()>
-//     where
-//         W: Write,
-//     {
-//         writer
-//             .write_u8(PACKET_START)
-//             .map_err(Error::PacketWriteFailed)?;
-//         writer.write_u8(pid).unwrap(); // PID
-//
-//         // TODO(patrik): Fix typ.to_u8().unwrap() noooow
-//         writer
-//             .write_u8(typ.to_u8().unwrap())
-//             .map_err(Error::PacketWriteFailed)?;
-//         // TODO(patrik): Check data.len()
-//         writer
-//             .write_u8(data.len() as u8)
-//             .map_err(Error::PacketWriteFailed)?;
-//         writer.write(data).map_err(Error::PacketWriteFailed)?;
-//
-//         writer
-//             .write_u16::<LittleEndian>(0)
-//             .map_err(Error::PacketWriteFailed)?;
-//
-//         Ok(())
-//     }
-//
-//     pub fn write_response<W>(
-//         writer: &mut W,
-//         pid: u8,
-//         error_code: ResponseErrorCode,
-//         data: &[u8],
-//     ) -> Result<()>
-//     where
-//         W: Write,
-//     {
-//         writer
-//             .write_u8(PACKET_START)
-//             .map_err(Error::PacketWriteFailed)?;
-//         writer.write_u8(pid).map_err(Error::PacketWriteFailed)?;
-//         let typ = PacketType::Response.to_u8().expect("This should not fail");
-//         writer.write_u8(typ).map_err(Error::PacketWriteFailed)?;
-//
-//         // TODO(patrik): Check data.len()
-//         let len = data.len() + 1;
-//         writer
-//             .write_u8(len as u8)
-//             .map_err(Error::PacketWriteFailed)?;
-//         // TODO(patrik): Fix error_code.to_u8().unwrap() nooow
-//         writer
-//             .write_u8(error_code.to_u8().unwrap())
-//             .map_err(Error::PacketWriteFailed)?;
-//         writer.write(data).map_err(Error::PacketWriteFailed)?;
-//
-//         writer
-//             .write_u16::<LittleEndian>(0)
-//             .map_err(Error::PacketWriteFailed)?;
-//
-//         Ok(())
-//     }
-// }
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -374,7 +239,6 @@ impl Identity {
     where
         W: Write,
     {
-        // TODO(patrik): Remove unwrap
         writer
             .write_u16::<LittleEndian>(self.version.0)
             .map_err(Error::IdentitySerialize)?;

@@ -50,6 +50,7 @@ pub enum PacketType {
         params: [u8; NUM_CMD_PARAMS],
     },
     Identify,
+    Status,
 
     OnConnect,
     OnCmd,
@@ -69,11 +70,12 @@ impl PacketType {
                 params: _,
             } => 3,
             PacketType::Identify => 4,
+            PacketType::Status => 5,
 
-            PacketType::OnConnect => 5,
-            PacketType::OnCmd => 6,
-            PacketType::OnIdentify(_) => 7,
-            PacketType::OnStatus(_) => 8,
+            PacketType::OnConnect => 6,
+            PacketType::OnCmd => 7,
+            PacketType::OnIdentify(_) => 8,
+            PacketType::OnStatus(_) => 9,
         }
     }
 }
@@ -123,6 +125,7 @@ impl Packet {
             }
 
             PacketType::Identify => {}
+            PacketType::Status => {}
             PacketType::OnConnect => {}
             PacketType::OnCmd => {}
 
@@ -169,15 +172,16 @@ impl Packet {
             }
 
             4 => Ok(PacketType::Identify),
-            5 => Ok(PacketType::OnConnect),
-            6 => Ok(PacketType::OnCmd),
+            5 => Ok(PacketType::Status),
+            6 => Ok(PacketType::OnConnect),
+            7 => Ok(PacketType::OnCmd),
 
-            7 => {
+            8 => {
                 let identity = Identity::deserialize(reader)?;
                 Ok(PacketType::OnIdentify(identity))
             }
 
-            8 => {
+            9 => {
                 let mut status = [0; NUM_STATUS_BYTES];
                 reader
                     .read_exact(&mut status)

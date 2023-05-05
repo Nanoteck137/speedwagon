@@ -57,11 +57,15 @@ pub enum ResponseCode {
 pub enum PacketType {
     Connect,
     Disconnect,
+    Error { code: ResponseCode },
 
     Cmd { index: u8, params: Vec<u8> },
-    Identify(Identify),
-    Status { data: [u8; NUM_STATUS_BYTES] },
-    Response { code: ResponseCode, data: Vec<u8> },
+    Identify,
+
+    OnConnect,
+    OnCmd,
+    OnIdentify(Identify),
+    OnStatus([u8; NUM_STATUS_BYTES]),
 }
 
 impl PacketType {
@@ -69,13 +73,18 @@ impl PacketType {
         match self {
             PacketType::Connect => 0,
             PacketType::Disconnect => 1,
+            PacketType::Error { code } => 2,
+
             PacketType::Cmd {
                 index: _,
                 params: _,
-            } => 2,
-            PacketType::Identify(_) => 3,
-            PacketType::Status { data: _ } => 4,
-            PacketType::Response { code: _, data: _ } => 5,
+            } => 3,
+            PacketType::Identify => 4,
+
+            PacketType::OnConnect => 5,
+            PacketType::OnCmd => 6,
+            PacketType::OnIdentify(_) => 7,
+            PacketType::OnStatus(_) => 8,
         }
     }
 }
@@ -111,6 +120,10 @@ impl Packet {
             PacketType::Connect => {}
             PacketType::Disconnect => {}
 
+            PacketType::Error { code } => {
+                writer.write_u8(code.to_u8().unwrap()).unwrap();
+            }
+
             PacketType::Cmd { index, params } => {
                 writer.write_u8(*index).unwrap();
                 // TODO(patrik): Check params len <= 255 maybe less
@@ -120,18 +133,13 @@ impl Packet {
                 }
             }
 
-            PacketType::Identify(identity) => identity.serialize(writer)?,
+            PacketType::Identify => {}
 
-            PacketType::Status { data } => {
-                for b in data {
-                    writer.write_u8(*b).unwrap();
-                }
-                writer.write(data).unwrap();
-            }
-
-            PacketType::Response { code, data } => {
-                writer.write_u8(code.to_u8().unwrap()).unwrap();
-                writer.write(data).unwrap();
+            PacketType::OnConnect => {}
+            PacketType::OnCmd => {}
+            PacketType::OnIdentify(identity) => identity.serialize(writer)?,
+            PacketType::OnStatus(status) => {
+                writer.write(status).unwrap();
             }
         }
 
@@ -152,6 +160,13 @@ impl Packet {
             0 => Ok(PacketType::Connect),
             1 => Ok(PacketType::Disconnect),
             2 => {
+                let code = reader.read_u8().unwrap();
+                let code = ResponseCode::from_u8(code).unwrap();
+
+                Ok(PacketType::Error { code })
+            }
+
+            3 => {
                 // TODO(patrik): Remove unwrap
                 let index =
                     reader.read_u8().map_err(Error::PacketDeserializeError)?;
@@ -167,40 +182,21 @@ impl Packet {
                 Ok(PacketType::Cmd { index, params })
             }
 
-            3 => {
-                // TODO(patrik): Remove unwrap
-                let identify = Identify::deserialize(reader)?;
-                Ok(PacketType::Identify(identify))
+            4 => Ok(PacketType::Identify),
+            5 => Ok(PacketType::OnConnect),
+            6 => Ok(PacketType::OnCmd),
+
+            7 => {
+                let identity = Identify::deserialize(reader)?;
+                Ok(PacketType::OnIdentify(identity))
             }
 
-            4 => {
-                let mut data = [0; NUM_STATUS_BYTES];
-                // TODO(patrik): Remove unwrap
+            8 => {
+                let mut status = [0; NUM_STATUS_BYTES];
                 reader
-                    .read_exact(&mut data)
+                    .read_exact(&mut status)
                     .map_err(Error::PacketDeserializeError)?;
-
-                Ok(PacketType::Status { data })
-            }
-
-            5 => {
-                let code =
-                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
-                // TODO(patrik): Remove unwrap
-                let code = ResponseCode::from_u8(code).unwrap();
-
-                let data_len =
-                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
-                let data_len = data_len as usize;
-
-                let mut data = vec![0; data_len];
-                if data_len > 0 {
-                    reader
-                        .read_exact(&mut data)
-                        .map_err(Error::PacketDeserializeError)?;
-                }
-
-                Ok(PacketType::Response { code, data })
+                Ok(PacketType::OnStatus(status))
             }
 
             _ => Err(Error::InvalidPacketType),

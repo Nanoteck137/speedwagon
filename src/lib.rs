@@ -39,7 +39,10 @@ pub enum ResponseCode {
 
 #[derive(Debug)]
 pub enum PacketType {
-    Connect,
+    Connect {
+        send_status: bool,
+        status_time: u16,
+    },
     Disconnect,
     Error {
         code: ResponseCode,
@@ -61,7 +64,10 @@ pub enum PacketType {
 impl PacketType {
     fn to_u8(&self) -> u8 {
         match self {
-            PacketType::Connect => 0,
+            PacketType::Connect {
+                send_status: _,
+                status_time: _,
+            } => 0,
             PacketType::Disconnect => 1,
             PacketType::Error { code: _ } => 2,
 
@@ -111,7 +117,17 @@ impl Packet {
             .map_err(Error::PacketSerialize)?;
 
         match &self.typ {
-            PacketType::Connect => {}
+            PacketType::Connect {
+                send_status,
+                status_time,
+            } => {
+                writer
+                    .write_u8(*send_status as u8)
+                    .map_err(Error::PacketSerialize)?;
+                writer
+                    .write_u16::<LittleEndian>(*status_time)
+                    .map_err(Error::PacketSerialize)?;
+            }
             PacketType::Disconnect => {}
 
             PacketType::Error { code } => {
@@ -148,7 +164,19 @@ impl Packet {
         let typ = reader.read_u8().map_err(Error::PacketDeserialize)?;
 
         let typ = match typ {
-            0 => Ok(PacketType::Connect),
+            0 => {
+                let send_status =
+                    reader.read_u8().map_err(Error::PacketDeserialize)?;
+                let send_status = send_status > 0;
+                let status_time = reader
+                    .read_u16::<LittleEndian>()
+                    .map_err(Error::PacketDeserialize)?;
+
+                Ok(PacketType::Connect {
+                    send_status,
+                    status_time,
+                })
+            }
             1 => Ok(PacketType::Disconnect),
             2 => {
                 let code =

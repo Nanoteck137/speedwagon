@@ -10,38 +10,21 @@ pub const NUM_STATUS_BYTES: usize = 8;
 
 #[derive(Debug)]
 pub enum Error {
-    // ResponseError(ResponseCode),
-    // PacketNotReponse(PacketType),
     InvalidResponseCode(u8),
     InvalidPacketType,
 
-    PacketDeserializeError(std::io::Error),
+    PacketSerialize(std::io::Error),
+    PacketDeserialize(std::io::Error),
 
-    IdentifyErrorReadingVersion(std::io::Error),
-    IdentifyErrorReadingNumCmds(std::io::Error),
-    IdentifyErrorReadingNameLength(std::io::Error),
-    IdentifyErrorReadingName(std::io::Error),
-    IdentifyFailedToConvertName(std::string::FromUtf8Error),
-
-    PacketWriteFailed(std::io::Error),
-    PacketReadFailed(std::io::Error),
+    IdentitySerialize(std::io::Error),
+    IdentityDeserialize(std::io::Error),
+    IdentityInvalidName(std::string::FromUtf8Error),
 
     StateSerializeFailed(std::io::Error),
     StateDeserializeFailed(std::io::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-// #[derive(Copy, Clone, Primitive, PartialEq, Debug)]
-// #[repr(u8)]
-// pub enum RawPacketType {
-//     Identify = 0x00,
-//     Status = 0x01,
-//     Command = 0x02,
-//     Ping = 0x03,
-//     Update = 0x04,
-//     Response = 0x05,
-// }
 
 #[derive(Copy, Clone, Primitive, PartialEq, Debug)]
 #[repr(u8)]
@@ -64,7 +47,7 @@ pub enum PacketType {
 
     OnConnect,
     OnCmd,
-    OnIdentify(Identify),
+    OnIdentify(Identity),
     OnStatus([u8; NUM_STATUS_BYTES]),
 }
 
@@ -73,7 +56,7 @@ impl PacketType {
         match self {
             PacketType::Connect => 0,
             PacketType::Disconnect => 1,
-            PacketType::Error { code } => 2,
+            PacketType::Error { code: _ } => 2,
 
             PacketType::Cmd {
                 index: _,
@@ -113,33 +96,38 @@ impl Packet {
         W: Write,
     {
         // TODO(patrik): Remove unwrap
-        writer.write_u16::<LittleEndian>(self.id).unwrap();
-        writer.write_u8(self.typ.to_u8()).unwrap();
+        writer
+            .write_u16::<LittleEndian>(self.id)
+            .map_err(Error::PacketSerialize)?;
+        writer
+            .write_u8(self.typ.to_u8())
+            .map_err(Error::PacketSerialize)?;
 
         match &self.typ {
             PacketType::Connect => {}
             PacketType::Disconnect => {}
 
             PacketType::Error { code } => {
-                writer.write_u8(code.to_u8().unwrap()).unwrap();
+                let code = code.to_u8().unwrap();
+                writer.write_u8(code).map_err(Error::PacketSerialize)?;
             }
 
             PacketType::Cmd { index, params } => {
-                writer.write_u8(*index).unwrap();
+                writer.write_u8(*index).map_err(Error::PacketSerialize)?;
                 // TODO(patrik): Check params len <= 255 maybe less
-                writer.write_u8(params.len() as u8).unwrap();
-                for param in params {
-                    writer.write_u8(*param).unwrap();
-                }
+                writer
+                    .write_u8(params.len() as u8)
+                    .map_err(Error::PacketSerialize)?;
+                writer.write(params).map_err(Error::PacketSerialize)?;
             }
 
             PacketType::Identify => {}
-
             PacketType::OnConnect => {}
             PacketType::OnCmd => {}
+
             PacketType::OnIdentify(identity) => identity.serialize(writer)?,
             PacketType::OnStatus(status) => {
-                writer.write(status).unwrap();
+                writer.write(status).map_err(Error::PacketSerialize)?;
             }
         }
 
@@ -150,34 +138,33 @@ impl Packet {
     where
         R: Read,
     {
-        // TODO(patrik): Remove unwrap
         let id = reader
             .read_u16::<LittleEndian>()
-            .map_err(Error::PacketDeserializeError)?;
-        let typ = reader.read_u8().map_err(Error::PacketDeserializeError)?;
+            .map_err(Error::PacketDeserialize)?;
+        let typ = reader.read_u8().map_err(Error::PacketDeserialize)?;
 
         let typ = match typ {
             0 => Ok(PacketType::Connect),
             1 => Ok(PacketType::Disconnect),
             2 => {
                 let code = reader.read_u8().unwrap();
-                let code = ResponseCode::from_u8(code).unwrap();
+                let code = ResponseCode::from_u8(code)
+                    .ok_or(Error::InvalidResponseCode(code))?;
 
                 Ok(PacketType::Error { code })
             }
 
             3 => {
-                // TODO(patrik): Remove unwrap
                 let index =
-                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
+                    reader.read_u8().map_err(Error::PacketDeserialize)?;
                 let num_params =
-                    reader.read_u8().map_err(Error::PacketDeserializeError)?;
+                    reader.read_u8().map_err(Error::PacketDeserialize)?;
                 let num_params = num_params as usize;
 
                 let mut params = vec![0; num_params];
                 reader
                     .read_exact(&mut params)
-                    .map_err(Error::PacketDeserializeError)?;
+                    .map_err(Error::PacketDeserialize)?;
 
                 Ok(PacketType::Cmd { index, params })
             }
@@ -187,7 +174,7 @@ impl Packet {
             6 => Ok(PacketType::OnCmd),
 
             7 => {
-                let identity = Identify::deserialize(reader)?;
+                let identity = Identity::deserialize(reader)?;
                 Ok(PacketType::OnIdentify(identity))
             }
 
@@ -195,7 +182,7 @@ impl Packet {
                 let mut status = [0; NUM_STATUS_BYTES];
                 reader
                     .read_exact(&mut status)
-                    .map_err(Error::PacketDeserializeError)?;
+                    .map_err(Error::PacketDeserialize)?;
                 Ok(PacketType::OnStatus(status))
             }
 
@@ -376,24 +363,32 @@ impl std::fmt::Debug for Version {
 }
 
 #[derive(Clone, Debug)]
-pub struct Identify {
+pub struct Identity {
     pub name: String,
     pub version: Version,
     pub num_cmds: usize,
 }
 
-impl Identify {
+impl Identity {
     pub fn serialize<W>(&self, writer: &mut W) -> Result<()>
     where
         W: Write,
     {
         // TODO(patrik): Remove unwrap
-        writer.write_u16::<LittleEndian>(self.version.0).unwrap();
+        writer
+            .write_u16::<LittleEndian>(self.version.0)
+            .map_err(Error::IdentitySerialize)?;
         // TODO(patrik): Check num_cmds
-        writer.write_u8(self.num_cmds as u8).unwrap();
+        writer
+            .write_u8(self.num_cmds as u8)
+            .map_err(Error::IdentitySerialize)?;
         // TODO(patrik): Check name len
-        writer.write_u8(self.name.len() as u8).unwrap();
-        writer.write(self.name.as_bytes()).unwrap();
+        writer
+            .write_u8(self.name.len() as u8)
+            .map_err(Error::IdentitySerialize)?;
+        writer
+            .write(self.name.as_bytes())
+            .map_err(Error::IdentitySerialize)?;
 
         Ok(())
     }
@@ -404,22 +399,18 @@ impl Identify {
     {
         let version = reader
             .read_u16::<LittleEndian>()
-            .map_err(Error::IdentifyErrorReadingName)?;
-        let num_cmds = reader
-            .read_u8()
-            .map_err(Error::IdentifyErrorReadingNumCmds)?;
+            .map_err(Error::IdentityDeserialize)?;
+        let num_cmds = reader.read_u8().map_err(Error::IdentityDeserialize)?;
         let num_cmds = num_cmds as usize;
-        let name_len = reader
-            .read_u8()
-            .map_err(Error::IdentifyErrorReadingNameLength)?;
+        let name_len = reader.read_u8().map_err(Error::IdentityDeserialize)?;
         let name_len = name_len as usize;
 
         let mut buf = vec![0; name_len];
         reader
             .read_exact(&mut buf)
-            .map_err(Error::IdentifyErrorReadingName)?;
-        let name = String::from_utf8(buf)
-            .map_err(Error::IdentifyFailedToConvertName)?;
+            .map_err(Error::IdentityDeserialize)?;
+        let name =
+            String::from_utf8(buf).map_err(Error::IdentityInvalidName)?;
 
         Ok(Self {
             name,
